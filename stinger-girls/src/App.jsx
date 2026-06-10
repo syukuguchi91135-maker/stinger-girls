@@ -1,6 +1,16 @@
 import { useState, useEffect } from "react";
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getDatabase, ref, onValue, push, set, remove } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+import liff from "@line/liff";
+
+import { initializeApp } from "firebase/app";
+
+import {
+  getDatabase,
+  ref,
+  onValue,
+  push,
+  set,
+  remove
+} from "firebase/database";
 
 // ──────────────────────────────────────────────────────────
 // 🔥 Firebase設定
