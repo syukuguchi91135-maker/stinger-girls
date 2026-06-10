@@ -44,8 +44,8 @@ const GROUP_PATH = "stinger_girls"; // ← このファイルに応じて変更
 // LINE Developers コンソール or liff.getProfile() で確認できる userId を追加
 // ──────────────────────────────────────────────────────────
 const ADMIN_USER_IDS = [
-  "U842a8c9b1559c4cf1b7e9b8499b9e99f", // 管理者1
-  "Uxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", // 管理者2（複数人可）
+  "U842a8c9b1559c4cf1b7e9b8499b9e99f", // 管理者1（すでに設定済み）
+  "mock_dev_user_001", // ← 開発テスト用（動作確認後に削除）
 ];
 
 // ──────────────────────────────────────────────────────────
