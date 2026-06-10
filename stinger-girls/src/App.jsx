@@ -112,23 +112,39 @@ export default function App() {
 
   // LIFF初期化
   useEffect(() => {
-    const initLiff = async () => {
-      try {
-        await liff.init({ liffId: LIFF_ID });
-        if (liff.isLoggedIn()) {
-          const profile = await liff.getProfile();
-          setLineUser({ userId: profile.userId, displayName: profile.displayName, pictureUrl: profile.pictureUrl });
-        } else {
-          liff.login();
-        }
-      } catch (e) {
-        console.warn("LIFF not available (dev mode):", e.message);
-        setLineUser({ userId: "mock_dev_user_001", displayName: "開発テストユーザー", pictureUrl: null });
+  const initLiff = async () => {
+    try {
+      await liff.init({ liffId: LIFF_ID });
+
+      if (liff.isLoggedIn()) {
+        const profile = await liff.getProfile();
+
+        console.log("LINE User ID:", profile.userId);
+        console.log("LINE Name:", profile.displayName);
+
+        setLineUser({
+          userId: profile.userId,
+          displayName: profile.displayName,
+          pictureUrl: profile.pictureUrl
+        });
+      } else {
+        liff.login();
       }
-      setLiffReady(true);
-    };
-    initLiff();
-  }, []);
+    } catch (e) {
+      console.error("LIFF ERROR:", e);
+
+      setLineUser({
+        userId: "mock_dev_user_001",
+        displayName: "開発テストユーザー",
+        pictureUrl: null
+      });
+    }
+
+    setLiffReady(true);
+  };
+
+  initLiff();
+}, []);
 
   // Firebaseリアルタイム同期
   useEffect(() => {
