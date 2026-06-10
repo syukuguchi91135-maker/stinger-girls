@@ -114,13 +114,18 @@ export default function App() {
   useEffect(() => {
   const initLiff = async () => {
     try {
-      await liff.init({ liffId: LIFF_ID });
+      console.log("LIFF START");
+
+      await liff.init({
+        liffId: LIFF_ID
+      });
+
+      console.log("LIFF OK");
 
       if (liff.isLoggedIn()) {
         const profile = await liff.getProfile();
 
         console.log("LINE User ID:", profile.userId);
-        console.log("LINE Name:", profile.displayName);
 
         setLineUser({
           userId: profile.userId,
@@ -130,6 +135,7 @@ export default function App() {
       } else {
         liff.login();
       }
+
     } catch (e) {
       console.error("LIFF ERROR:", e);
 
@@ -146,22 +152,43 @@ export default function App() {
   initLiff();
 }, []);
 
+  
   // Firebaseリアルタイム同期
   useEffect(() => {
-    const unsub = onValue(ref(db, `${GROUP_PATH}/events`), (snapshot) => {
-      const data = snapshot.val();
-      if (data) {
-        const list = Object.entries(data).map(([fbKey, val]) => ({ ...deserializeEvent(val), fbKey }));
-        list.sort((a,b) => new Date(a.date) - new Date(b.date));
-        setEvents(list);
-        setSelectedEvent(prev => prev ? list.find(e => e.fbKey === prev.fbKey) || prev : null);
-      } else {
-        setEvents([]);
-      }
-      setLoading(false);
-    });
-    return () => unsub();
-  }, []);
+  console.log("FIREBASE START");
+
+  const eventRef = ref(
+    db,
+    `${GROUP_PATH}/events`
+  );
+
+  onValue(eventRef, (snapshot) => {
+    const data = snapshot.val();
+
+    console.log("Firebase data:", data);
+
+    if (data) {
+      const list = Object.entries(data).map(
+        ([fbKey, val]) => ({
+          ...deserializeEvent(val),
+          fbKey
+        })
+      );
+
+      list.sort(
+        (a, b) =>
+          new Date(a.date) -
+          new Date(b.date)
+      );
+
+      setEvents(list);
+    } else {
+      setEvents([]);
+    }
+
+    setLoading(false);
+  });
+}, []);
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
 
