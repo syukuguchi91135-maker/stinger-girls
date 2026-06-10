@@ -6,13 +6,13 @@ import { getDatabase, ref, onValue, push, set, remove } from "https://www.gstati
 // 🔥 Firebase設定
 // ──────────────────────────────────────────────────────────
 const firebaseConfig = {
-  apiKey:            "YOUR_API_KEY",
-  authDomain:        "YOUR_PROJECT_ID.firebaseapp.com",
-  databaseURL:       "https://YOUR_PROJECT_ID-default-rtdb.firebaseio.com",
-  projectId:         "YOUR_PROJECT_ID",
-  storageBucket:     "YOUR_PROJECT_ID.appspot.com",
-  messagingSenderId: "YOUR_SENDER_ID",
-  appId:             "YOUR_APP_ID",
+  apiKey: "AIzaSyCmK4gTeVbhD25b-tnF8EzKEL42_27NLqE",
+  authDomain: "line-calendar-bf7db.firebaseapp.com",
+  databaseURL: "https://line-calendar-bf7db-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "line-calendar-bf7db",
+  storageBucket: "line-calendar-bf7db.firebasestorage.app",
+  messagingSenderId: "716210439011",
+  appId: "1:716210439011:web:5729ec083ae2c29e154956"
 };
 const app = initializeApp(firebaseConfig);
 const db  = getDatabase(app);
@@ -27,14 +27,14 @@ const LIFF_ID = "YOUR_LIFF_ID";
 // stingerサークル用: "stinger_circle"
 // stinger女子用:     "stinger_girls"
 // ──────────────────────────────────────────────────────────
-const GROUP_PATH = "stinger_circle"; // ← このファイルに応じて変更
+const GROUP_PATH = "stinger_girls"; // ← このファイルに応じて変更
 
 // ──────────────────────────────────────────────────────────
 // 🔑 管理者権限を持つLINEユーザーIDのリスト
 // LINE Developers コンソール or liff.getProfile() で確認できる userId を追加
 // ──────────────────────────────────────────────────────────
 const ADMIN_USER_IDS = [
-  "Uxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", // 管理者1
+  "Ub38755772c803258b4321f268dab48ed", // 管理者1
   "Uxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", // 管理者2（複数人可）
 ];
 
