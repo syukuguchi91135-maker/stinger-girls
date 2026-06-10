@@ -1,16 +1,6 @@
 import { useState, useEffect } from "react";
-import liff from "@line/liff";
-
-import { initializeApp } from "firebase/app";
-
-import {
-  getDatabase,
-  ref,
-  onValue,
-  push,
-  set,
-  remove
-} from "firebase/database";
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getDatabase, ref, onValue, push, set, remove } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
 // ──────────────────────────────────────────────────────────
 // 🔥 Firebase設定
@@ -44,8 +34,8 @@ const GROUP_PATH = "stinger_girls"; // ← このファイルに応じて変更
 // LINE Developers コンソール or liff.getProfile() で確認できる userId を追加
 // ──────────────────────────────────────────────────────────
 const ADMIN_USER_IDS = [
-  "U842a8c9b1559c4cf1b7e9b8499b9e99f", // 管理者1（すでに設定済み）
-  "mock_dev_user_001", // ← 開発テスト用（動作確認後に削除）
+  "U842a8c9b1559c4cf1b7e9b8499b9e99f", // 管理者1
+  "Uxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", // 管理者2（複数人可）
 ];
 
 // ──────────────────────────────────────────────────────────
@@ -112,83 +102,39 @@ export default function App() {
 
   // LIFF初期化
   useEffect(() => {
-  const initLiff = async () => {
-    try {
-      console.log("LIFF START");
-
-      await liff.init({
-        liffId: LIFF_ID
-      });
-
-      console.log("LIFF OK");
-
-      if (liff.isLoggedIn()) {
-        const profile = await liff.getProfile();
-
-        console.log("LINE User ID:", profile.userId);
-
-        setLineUser({
-          userId: profile.userId,
-          displayName: profile.displayName,
-          pictureUrl: profile.pictureUrl
-        });
-      } else {
-        liff.login();
+    const initLiff = async () => {
+      try {
+        await liff.init({ liffId: LIFF_ID });
+        if (liff.isLoggedIn()) {
+          const profile = await liff.getProfile();
+          setLineUser({ userId: profile.userId, displayName: profile.displayName, pictureUrl: profile.pictureUrl });
+        } else {
+          liff.login();
+        }
+      } catch (e) {
+        console.error("LIFF ERROR:", e.message);
       }
+      setLiffReady(true);
+    };
+    initLiff();
+  }, []);
 
-    } catch (e) {
-      console.error("LIFF ERROR:", e);
-
-      setLineUser({
-        userId: "mock_dev_user_001",
-        displayName: "開発テストユーザー",
-        pictureUrl: null
-      });
-    }
-
-    setLiffReady(true);
-  };
-
-  initLiff();
-}, []);
-
-  
   // Firebaseリアルタイム同期
   useEffect(() => {
-  console.log("FIREBASE START");
-
-  const eventRef = ref(
-    db,
-    `${GROUP_PATH}/events`
-  );
-
-  onValue(eventRef, (snapshot) => {
-    const data = snapshot.val();
-
-    console.log("Firebase data:", data);
-
-    if (data) {
-      const list = Object.entries(data).map(
-        ([fbKey, val]) => ({
-          ...deserializeEvent(val),
-          fbKey
-        })
-      );
-
-      list.sort(
-        (a, b) =>
-          new Date(a.date) -
-          new Date(b.date)
-      );
-
-      setEvents(list);
-    } else {
-      setEvents([]);
-    }
-
-    setLoading(false);
-  });
-}, []);
+    const unsub = onValue(ref(db, `${GROUP_PATH}/events`), (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        const list = Object.entries(data).map(([fbKey, val]) => ({ ...deserializeEvent(val), fbKey }));
+        list.sort((a,b) => new Date(a.date) - new Date(b.date));
+        setEvents(list);
+        setSelectedEvent(prev => prev ? list.find(e => e.fbKey === prev.fbKey) || prev : null);
+      } else {
+        setEvents([]);
+      }
+      setLoading(false);
+    });
+    return () => unsub();
+  }, []);
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
 
@@ -204,7 +150,6 @@ export default function App() {
     if (!lineUser || !selectedEvent) return;
     const existing = selectedEvent.attendees.find(a => a.lineId === lineUser.userId);
     const now = new Date().toISOString();
-    // 参加→参加は順位維持、それ以外は現在時刻（最後尾）
     const entryTime = (existing && existing.status === "参加" && respondForm.status === "参加")
       ? (existing.time instanceof Date ? existing.time.toISOString() : existing.time)
       : now;
@@ -217,6 +162,13 @@ export default function App() {
       updatedAt:  now,
     };
     await set(ref(db, `${GROUP_PATH}/events/${selectedEvent.fbKey}/attendees/${lineUser.userId}`), entry);
+    // ローカルstateを即時更新
+    const updatedAttendees = [
+      ...selectedEvent.attendees.filter(a => a.lineId !== lineUser.userId),
+      { ...entry, time: new Date(entryTime), updatedAt: new Date(now) },
+    ];
+    const updatedEvent = { ...selectedEvent, attendees: updatedAttendees };
+    setSelectedEvent(updatedEvent);
     setNewHighlight(lineUser.userId);
     setTimeout(() => setNewHighlight(null), 4000);
     showToast(existing ? "✏️ 回答を更新しました！" : "✅ 回答しました！");
@@ -228,6 +180,12 @@ export default function App() {
     if (!lineUser || !selectedEvent) return;
     if (!confirm("回答を取り消しますか？\n取り消し後は再度回答できます。")) return;
     await remove(ref(db, `${GROUP_PATH}/events/${selectedEvent.fbKey}/attendees/${lineUser.userId}`));
+    // ローカルstateを即時更新
+    const updatedEvent = {
+      ...selectedEvent,
+      attendees: selectedEvent.attendees.filter(a => a.lineId !== lineUser.userId),
+    };
+    setSelectedEvent(updatedEvent);
     showToast("🗑️ 回答を取り消しました");
     setScreen("event");
   };
