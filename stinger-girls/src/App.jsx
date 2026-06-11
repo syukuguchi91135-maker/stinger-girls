@@ -20,7 +20,7 @@ const db  = getDatabase(app);
 // ──────────────────────────────────────────────────────────
 // 📱 LIFF設定
 // ──────────────────────────────────────────────────────────
-const LIFF_ID = "2010363491-Ej8isHdC";
+const LIFF_ID = "2010363491-Ej8isHdC"; // stinger_girls用
 
 // ──────────────────────────────────────────────────────────
 // 👥 グループ識別子（Firebaseのデータ保存パス）
@@ -30,13 +30,11 @@ const LIFF_ID = "2010363491-Ej8isHdC";
 const GROUP_PATH = "stinger_girls"; // ← このファイルに応じて変更
 
 // ──────────────────────────────────────────────────────────
-// 🔑 管理者権限を持つLINEユーザーIDのリスト
-// LINE Developers コンソール or liff.getProfile() で確認できる userId を追加
+// 🔑 管理者パスワード
+// このパスワードを知っている人が管理者になれます
+// 変更したい場合はここを書き換えてデプロイするだけでOK
 // ──────────────────────────────────────────────────────────
-const ADMIN_USER_IDS = [
-  "U842a8c9b1559c4cf1b7e9b8499b9e99f", // 管理者1
-  "Uxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", // 管理者2（複数人可）
-];
+const ADMIN_PASSWORD = "stingeradmin"; // ← 好きなパスワードに変更
 
 // ──────────────────────────────────────────────────────────
 const TODAY = new Date();
@@ -47,9 +45,7 @@ const STATUS_META = {
   未定: { bg: "#9CA3AF", light: "#f3f4f6", icon: "🤔" },
 };
 
-function isAdmin(userId) {
-  return ADMIN_USER_IDS.includes(userId);
-}
+// isAdmin は App コンポーネント内の adminIds state で管理
 function toLocalDateStr(d) {
   const dt = d instanceof Date ? d : new Date(d);
   return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}-${String(dt.getDate()).padStart(2,"0")}`;
@@ -90,6 +86,8 @@ export default function App() {
   const [loading,       setLoading]       = useState(true);
   const [liffReady,     setLiffReady]     = useState(false);
   const [lineUser,      setLineUser]      = useState(null);
+  const [adminIds,      setAdminIds]      = useState([]); // Firebaseから取得した管理者IDリスト
+  const [showAdminModal,setShowAdminModal]= useState(false); // 管理者パスワード入力モーダル
   const [screen,        setScreen]        = useState("calendar");
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [calYear,       setCalYear]       = useState(TODAY.getFullYear());
@@ -105,16 +103,27 @@ export default function App() {
     const initLiff = async () => {
       try {
         await liff.init({ liffId: LIFF_ID });
-        if (liff.isLoggedIn()) {
-          const profile = await liff.getProfile();
-          setLineUser({ userId: profile.userId, displayName: profile.displayName, pictureUrl: profile.pictureUrl });
-        } else {
+
+        if (!liff.isLoggedIn()) {
+          // 未ログインの場合はログイン画面へ遷移（setLiffReadyは呼ばない）
           liff.login();
+          return;
         }
+
+        const profile = await liff.getProfile();
+        console.log("LINE userId:", profile.userId); // 管理者IDの確認用
+        setLineUser({
+          userId:      profile.userId,
+          displayName: profile.displayName,
+          pictureUrl:  profile.pictureUrl,
+        });
+        setLiffReady(true);
+
       } catch (e) {
         console.error("LIFF ERROR:", e.message);
+        // LIFFエラー時もローディングを解除（エラー画面を表示）
+        setLiffReady(true);
       }
-      setLiffReady(true);
     };
     initLiff();
   }, []);
@@ -135,6 +144,29 @@ export default function App() {
     });
     return () => unsub();
   }, []);
+
+  // 管理者リストをFirebaseからリアルタイム同期
+  useEffect(() => {
+    const unsub = onValue(ref(db, `${GROUP_PATH}/admins`), (snapshot) => {
+      const data = snapshot.val();
+      setAdminIds(data ? Object.keys(data) : []);
+    });
+    return () => unsub();
+  }, []);
+
+  // パスワード認証して管理者登録
+  const submitAdminPassword = async (password) => {
+    if (password !== ADMIN_PASSWORD) {
+      showToast("❌ パスワードが違います");
+      return;
+    }
+    await set(ref(db, `${GROUP_PATH}/admins/${lineUser.userId}`), {
+      name:        lineUser.displayName,
+      registeredAt: new Date().toISOString(),
+    });
+    setShowAdminModal(false);
+    showToast("👑 管理者権限が付与されました！");
+  };
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
 
@@ -192,7 +224,7 @@ export default function App() {
 
   // イベント編集保存（管理者のみ）
   const submitEdit = async () => {
-    if (!editForm.title.trim() || !isAdmin(lineUser?.userId)) return;
+    if (!editForm.title.trim() || !adminIds.includes(lineUser?.userId)) return;
     await set(ref(db, `${GROUP_PATH}/events/${editForm.fbKey}`), serializeEvent(editForm));
     showToast("📝 保存しました！");
     setScreen("event");
@@ -200,7 +232,7 @@ export default function App() {
 
   // 新規イベント作成（管理者のみ）
   const submitNewEvent = async () => {
-    if (!editForm.title.trim() || !isAdmin(lineUser?.userId)) return;
+    if (!editForm.title.trim() || !adminIds.includes(lineUser?.userId)) return;
     await push(ref(db, `${GROUP_PATH}/events`), serializeEvent({ ...editForm, id: Date.now(), attendees: [] }));
     showToast("🎉 イベントを作成しました！");
     setScreen("calendar");
@@ -208,27 +240,39 @@ export default function App() {
 
   // イベント削除（管理者のみ）
   const deleteEvent = async (fbKey) => {
-    if (!isAdmin(lineUser?.userId)) return;
+    if (!adminIds.includes(lineUser?.userId)) return;
     await remove(ref(db, `${GROUP_PATH}/events/${fbKey}`));
     showToast("🗑️ 削除しました");
     setScreen("calendar");
   };
 
   const openEdit = (ev) => {
-    if (!isAdmin(lineUser?.userId)) return;
+    if (!adminIds.includes(lineUser?.userId)) return;
     setEditForm({ ...ev, date: new Date(ev.date), deadline: new Date(ev.deadline) });
     setScreen("edit");
   };
 
   const openNewEvent = (date) => {
-    if (!isAdmin(lineUser?.userId)) { showToast("⛔ 管理者のみ作成できます"); return; }
+    if (!adminIds.includes(lineUser?.userId)) { showToast("⛔ 管理者のみ作成できます"); return; }
     const base = date || new Date(TODAY.getFullYear(), TODAY.getMonth(), TODAY.getDate());
     setEditForm({ id: null, title: "", date: base, time: "19:00", endTime: "21:00",
       place: "", capacity: 20, deadline: base, note: "", color: "#00B900" });
     setScreen("newEvent");
   };
 
-  const admin = isAdmin(lineUser?.userId);
+  const admin = lineUser ? adminIds.includes(lineUser.userId) : false;
+
+  // LIFFエラー時（lineUserがnullのまま準備完了した場合）
+  if (liffReady && !lineUser) return (
+    <div style={S.shell}><div style={S.phone}>
+      <div style={S.loadingScreen}>
+        <div style={{fontSize:40}}>⚠️</div>
+        <div style={{fontSize:14,color:"#888",marginTop:8,textAlign:"center",padding:"0 24px"}}>
+          LINEログインに失敗しました。<br/>LINEアプリのトークからURLを開いてください。
+        </div>
+      </div>
+    </div></div>
+  );
 
   if (loading || !liffReady) return (
     <div style={S.shell}><div style={S.phone}>
@@ -275,17 +319,26 @@ export default function App() {
           {admin
             ? <NavBtn icon="➕" label="新規作成" active={false} onClick={() => openNewEvent(null)} isPlus />
             : <div style={{flex:1}}/>}
-          <div style={S.navUserArea}>
+          <div style={S.navUserArea} onClick={() => !admin && setShowAdminModal(true)}>
             {lineUser?.pictureUrl
               ? <img src={lineUser.pictureUrl} style={S.navUserImg} alt="me" />
               : <div style={S.navUserInitial}>{lineUser?.displayName?.[0]}</div>}
-            <span style={{fontSize:9,color:"#888",marginTop:1,maxWidth:60,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-              {admin ? "👑 " : ""}{lineUser?.displayName}
+            <span style={{fontSize:9,color:admin?"#00B900":"#888",marginTop:1,maxWidth:60,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:admin?700:400}}>
+              {admin ? "👑管理者" : "🔑権限取得"}
             </span>
           </div>
         </div>
 
         {toast && <div style={S.toast}>{toast}</div>}
+
+        {/* 管理者パスワード入力モーダル */}
+        {showAdminModal && (
+          <AdminPasswordModal
+            onSubmit={submitAdminPassword}
+            onClose={() => setShowAdminModal(false)}
+            showToast={showToast}
+          />
+        )}
       </div>
     </div>
   );
@@ -309,7 +362,7 @@ function CalendarScreen({ events, calYear, calMonth, setCalYear, setCalMonth, se
   });
   const isFull = (ev) => {
     const cap = ev.capacity ?? 0;
-    if (cap === 0) return false;
+    if (cap === 0) return true; // 0=受付停止→満員扱い
     return ev.attendees.filter(a=>a.status==="参加").length >= cap;
   };
   const selectedEvents = selectedDate
@@ -404,7 +457,7 @@ function EventScreen({ event, lineUser, admin, onBack, onRespond, onCancelRespon
   const absent    = event.attendees.filter(a=>a.status==="欠席");
   const undecided = event.attendees.filter(a=>a.status==="未定");
   const cap       = event.capacity ?? 0;
-  const remaining = cap > 0 ? cap - attending.length : null;
+  const remaining = cap === 0 ? 0 : cap - attending.length;
   const myEntry   = lineUser && event.attendees.find(a => a.lineId === lineUser.userId);
 
   return (
@@ -421,21 +474,19 @@ function EventScreen({ event, lineUser, admin, onBack, onRespond, onCancelRespon
         <div style={S.eventHeaderMeta}>📍 {event.place}</div>
       </div>
 
-      {/* 定員バー（定員0=無制限の場合は非表示） */}
-      {cap > 0 && (
-        <div style={S.capacityStrip}>
-          <div style={S.capBar}>
-            <div style={{...S.capFill, width:`${Math.min(100,(attending.length/cap)*100)}%`, background:remaining<=0?"#EF4444":event.color}}/>
-          </div>
-          <div style={S.capNums}>
-            <span style={{color:event.color,fontWeight:700}}>{attending.length}名参加</span>
-            <span style={{color:"#aaa"}}> / {cap}名定員</span>
-            {remaining<=0
-              ? <span style={{marginLeft:"auto",color:"#EF4444",fontWeight:700}}>満員</span>
-              : <span style={{marginLeft:"auto",color:remaining<=5?"#EF4444":"#666",fontWeight:600}}>残{remaining}席</span>}
-          </div>
+      {/* 定員バー（0=満員扱い） */}
+      <div style={S.capacityStrip}>
+        <div style={S.capBar}>
+          <div style={{...S.capFill, width:cap===0?"100%":`${Math.min(100,(attending.length/cap)*100)}%`, background:remaining<=0?"#EF4444":event.color}}/>
         </div>
-      )}
+        <div style={S.capNums}>
+          <span style={{color:event.color,fontWeight:700}}>{attending.length}名参加</span>
+          {cap > 0 && <span style={{color:"#aaa"}}> / {cap}名定員</span>}
+          {remaining<=0
+            ? <span style={{marginLeft:"auto",color:"#EF4444",fontWeight:700}}>満員</span>
+            : <span style={{marginLeft:"auto",color:remaining<=5?"#EF4444":"#666",fontWeight:600}}>残{remaining}席</span>}
+        </div>
+      </div>
 
       <div style={S.tabs}>
         {["info","list"].map(t=>(
@@ -451,7 +502,7 @@ function EventScreen({ event, lineUser, admin, onBack, onRespond, onCancelRespon
             <InfoRow icon="🕐" label="時間" value={`${event.time} 〜 ${event.endTime}`} />
             <InfoRow icon="📍" label="場所" value={event.place} />
             {cap > 0 && <InfoRow icon="👥" label="定員" value={`${cap}名`} />}
-            {cap === 0 && <InfoRow icon="👥" label="定員" value="制限なし" />}
+            {cap === 0 && <InfoRow icon="👥" label="定員" value="満員（受付停止）" />}
             <InfoRow icon="⏰" label="締切" value={fmt(event.deadline)} />
             {event.note && <InfoRow icon="📝" label="備考" value={event.note} />}
             <div style={S.summaryCards}>
@@ -473,7 +524,7 @@ function EventScreen({ event, lineUser, admin, onBack, onRespond, onCancelRespon
                     : <div style={{...S.aAvatar,background:STATUS_META[myEntry.status].bg,width:36,height:36}}>{myEntry.name[0]}</div>}
                   <div style={{flex:1}}>
                     <div style={{fontSize:14,fontWeight:700}}>{myEntry.name}</div>
-                    <div style={{fontSize:11,color:"#888"}}>🕐 {fmtFull(new Date(myEntry.time))}</div>
+<div style={{fontSize:11,color:"#888"}}>🕐 {fmtFull(new Date(myEntry.time))}</div>
                   </div>
                   <div style={S.aPill(myEntry.status)}>{myEntry.status}</div>
                 </div>
@@ -553,10 +604,9 @@ function RespondScreen({ event, lineUser, form, setForm, onSubmit, onBack }) {
   const myEntry   = lineUser && event.attendees.find(a => a.lineId === lineUser.userId);
   const attending = event.attendees.filter(a=>a.status==="参加").length;
   const cap       = event.capacity ?? 0;
-  // 自分が参加中なら自分の席を除外して残席計算
   const myIsAttending = myEntry?.status === "参加";
-  const remaining = cap > 0 ? cap - attending + (myIsAttending ? 1 : 0) : null;
-  const isFull    = remaining !== null && remaining <= 0;
+  const remaining = cap === 0 ? 0 : cap - attending + (myIsAttending ? 1 : 0);
+  const isFull    = remaining <= 0;
 
   return (
     <div style={S.screen}>
@@ -593,7 +643,7 @@ function RespondScreen({ event, lineUser, form, setForm, onSubmit, onBack }) {
           ))}
         </div>
 
-        {form.status==="参加" && remaining!==null && remaining<=5 && remaining>0 && (
+        {form.status==="参加" && remaining<=5 && remaining>0 && (
           <div style={S.warnBox}>⚠️ 残席わずか！（残{remaining}席）</div>
         )}
         {form.status==="参加" && isFull && (
@@ -642,10 +692,10 @@ function EditScreen({ form, setForm, isNew, onSubmit, onBack }) {
         <Field label="場所">
           <input style={S.formInput} placeholder="例：渋谷 居酒屋「葵」" value={form.place} onChange={e=>setForm({...form,place:e.target.value})} />
         </Field>
-        <Field label="定員（0=制限なし）">
-          <input type="number" style={S.formInput} value={form.capacity} min={0}
+        <Field label="定員（0=満員・受付停止）">
+          <input type="number" style={S.formInput} value={form.capacity??0} min={0}
             onChange={e=>setForm({...form,capacity:Math.max(0,parseInt(e.target.value)||0)})} />
-          <div style={{fontSize:11,color:"#888",marginTop:4}}>※ 0に設定すると定員制限なしになります</div>
+          <div style={{fontSize:11,color:"#888",marginTop:4}}>※ 0に設定すると満員（受付停止）になります</div>
         </Field>
         <Field label="回答締切">
           <input type="date" style={S.formInput} value={deadlineStr} onChange={e=>setForm({...form,deadline:new Date(e.target.value+"T00:00:00")})} />
@@ -673,6 +723,38 @@ function Field({ label, children, required, style }) {
     <div style={style}>
       <label style={S.formLabel}>{label}{required&&<span style={{color:"#EF4444"}}> *</span>}</label>
       {children}
+    </div>
+  );
+}
+
+// ─── Admin Password Modal ─────────────────────────────────
+function AdminPasswordModal({ onSubmit, onClose, showToast }) {
+  const [password, setPassword] = useState("");
+  return (
+    <div style={S.modalOverlay}>
+      <div style={S.modalCard}>
+        <div style={S.modalTitle}>🔑 管理者パスワード</div>
+        <div style={{fontSize:12,color:"#888",marginBottom:16,lineHeight:1.6}}>
+          管理者パスワードを入力すると<br/>イベントの作成・編集・削除ができます
+        </div>
+        <input
+          type="password"
+          style={{...S.formInput, marginBottom:12}}
+          placeholder="パスワードを入力"
+          value={password}
+          onChange={e => setPassword(e.target.value)}
+          onKeyDown={e => e.key==="Enter" && onSubmit(password)}
+          autoFocus
+        />
+        <button
+          style={{...S.respondBtn, background: password ? "#00B900" : "#ccc", marginBottom:8}}
+          onClick={() => onSubmit(password)}
+          disabled={!password}
+        >
+          認証する
+        </button>
+        <button style={S.cancelResponseBtn} onClick={onClose}>キャンセル</button>
+      </div>
     </div>
   );
 }
@@ -760,5 +842,8 @@ const S = {
   navUserImg:{ width:28, height:28, borderRadius:"50%", objectFit:"cover" },
   navUserInitial:{ width:28, height:28, borderRadius:"50%", background:"#00B900", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, fontWeight:700 },
   plusCircle:{ width:38, height:38, borderRadius:"50%", background:"#00B900", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, boxShadow:"0 2px 8px rgba(0,185,0,0.35)" },
+  modalOverlay:{ position:"absolute", inset:0, background:"rgba(0,0,0,0.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:200, borderRadius:40 },
+  modalCard:{ background:"#fff", borderRadius:20, padding:"24px 20px", width:300, display:"flex", flexDirection:"column" },
+  modalTitle:{ fontWeight:800, fontSize:17, color:"#333", marginBottom:8, textAlign:"center" },
   toast:{ position:"absolute", bottom:80, left:"50%", transform:"translateX(-50%)", background:"rgba(0,0,0,0.75)", color:"#fff", borderRadius:20, padding:"8px 20px", fontSize:13, whiteSpace:"nowrap", zIndex:100 },
 };
